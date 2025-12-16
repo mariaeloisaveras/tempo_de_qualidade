@@ -8,14 +8,10 @@
         android:label="tempo_de_qualidade"
         android:name="${applicationName}"
         android:icon="@android:drawable/ic_menu_mylocation">
-        <receiver
-            android:name=".GeofenceBroadcastReceiver"
+        <service
+            android:name=".GeofenceTransitionsService"
             android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.example.tempo_de_qualidade.GEOFENCE_EVENT" />
-            </intent-filter>
-        </receiver>
+            android:exported="false" />
 
         <activity
             android:name=".MainActivity"
