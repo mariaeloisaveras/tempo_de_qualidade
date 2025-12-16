@@ -3,6 +3,7 @@ package com.example.tempo_de_qualidade
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
@@ -14,8 +15,8 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val geofencingClient by lazy { LocationServices.getGeofencingClient(this) }
     private val pendingIntent: PendingIntent by lazy {
-        val intent = Intent(this, GeofenceBroadcastReceiver::class.java).apply {
-            action = GeofenceBroadcastReceiver.ACTION_GEOFENCE_EVENT
+        val intent = Intent(this, GeofenceTransitionsService::class.java).apply {
+            action = GeofenceTransitionsService.ACTION_GEOFENCE_EVENT
         }
 
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -24,7 +25,7 @@ class MainActivity : FlutterActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT
         }
 
-        PendingIntent.getBroadcast(this, 0, intent, flags)
+        PendingIntent.getService(this, 0, intent, flags)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -64,6 +65,7 @@ class MainActivity : FlutterActivity() {
         geofencingClient.addGeofences(request, pendingIntent)
             .addOnSuccessListener { result.success(null) }
             .addOnFailureListener { error ->
+                Log.e(TAG, "Failed to add geofence", error)
                 result.error("ADD_FAILED", error.localizedMessage, null)
             }
     }
@@ -78,11 +80,13 @@ class MainActivity : FlutterActivity() {
         geofencingClient.removeGeofences(listOf(id))
             .addOnSuccessListener { result.success(null) }
             .addOnFailureListener { error ->
+                Log.e(TAG, "Failed to remove geofence", error)
                 result.error("REMOVE_FAILED", error.localizedMessage, null)
             }
     }
 
     companion object {
+        private const val TAG = "MainActivity"
         private const val CHANNEL = "com.example.tempo_de_qualidade/geofencing"
     }
 }
