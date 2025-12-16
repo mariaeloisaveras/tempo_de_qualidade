@@ -18,8 +18,8 @@ import org.json.JSONObject
 class MainActivity : FlutterActivity() {
     private val geofencingClient by lazy { LocationServices.getGeofencingClient(this) }
     private val pendingIntent: PendingIntent by lazy {
-        val intent = Intent(this, GeofenceBroadcastReceiver::class.java).apply {
-            action = GeofenceBroadcastReceiver.ACTION_GEOFENCE_EVENT
+        val intent = Intent(this, GeofenceTransitionsService::class.java).apply {
+            action = GeofenceTransitionsService.ACTION_GEOFENCE_EVENT
         }
 
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -28,7 +28,7 @@ class MainActivity : FlutterActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT
         }
 
-        PendingIntent.getBroadcast(this, 0, intent, flags)
+        PendingIntent.getService(this, 0, intent, flags)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -203,6 +203,7 @@ class MainActivity : FlutterActivity() {
     }
 
     companion object {
+        private const val TAG = "MainActivity"
         private const val CHANNEL = "com.example.tempo_de_qualidade/geofencing"
         private const val PREFS_NAME = "geofence_prefs"
         private const val KEY_SAVED_GEOFENCES = "saved_geofences"

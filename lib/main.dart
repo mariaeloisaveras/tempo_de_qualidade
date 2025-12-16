@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_place/google_place.dart';
+import 'package:flutter_dnd/flutter_dnd.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,6 +50,10 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
   final List<_SavedGeofence> _geofences = [];
   List<AutocompletePrediction> _predictions = [];
   Timer? _debounce;
+  bool _locationServiceEnabled = false;
+  LocationPermission? _locationPermission;
+  bool _dndAccessGranted = false;
+  bool _dndEnabled = false;
 
   @override
   void initState() {
@@ -72,19 +77,31 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
 
   Future<void> _initLocation() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+    if (!serviceEnabled) {
+      _showMessage('Ative o serviço de localização para usar o mapa.');
+      return;
+    }
 
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
     }
 
-    if (permission == LocationPermission.deniedForever) return;
+    if (permission == LocationPermission.denied) {
+      _showMessage('Permita o acesso à localização para usar o mapa.');
+      return;
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      _showMessage('Autorize a localização nas configurações do sistema.');
+      return;
+    }
 
     final position = await Geolocator.getCurrentPosition();
     setState(() {
       _cameraPosition = LatLng(position.latitude, position.longitude);
+      _locationPermission = permission;
+      _locationServiceEnabled = serviceEnabled;
     });
     _mapController?.animateCamera(
       CameraUpdate.newLatLng(_cameraPosition),
@@ -322,6 +339,69 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
       ),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Estado atual',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.location_pin),
+                        title: const Text('Permissão de localização'),
+                        subtitle: Text(_locationPermissionLabel()),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.do_not_disturb),
+                        title: const Text('Acesso ao Não Perturbe'),
+                        subtitle: Text(_dndStatusLabel()),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.adjust_rounded),
+                        title: const Text('Geofences ativas'),
+                        subtitle: Text('${_geofences.length} ativa(s)'),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _requestForegroundPermission,
+                      icon: const Icon(Icons.my_location),
+                      label: const Text('Permitir localização em uso'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _requestBackgroundPermission,
+                      icon: const Icon(Icons.location_history),
+                      label: const Text('Permitir em segundo plano'),
+                    ),
+                    TextButton.icon(
+                      onPressed: _openDndSettings,
+                      icon: const Icon(Icons.settings_applications),
+                      label: const Text('Permitir acesso ao Não Perturbe'),
+                    ),
+                    IconButton(
+                      onPressed: _refreshStatuses,
+                      icon: const Icon(Icons.refresh),
+                      tooltip: 'Atualizar status',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Column(
