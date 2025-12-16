@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
@@ -73,9 +74,11 @@ class MainActivity : FlutterActivity() {
         geofencingClient.addGeofences(request, pendingIntent)
             .addOnSuccessListener {
                 saveGeofence(StoredGeofence(id, latitude, longitude, radius.toFloat()))
+                Log.i(TAG, "Registered geofence $id at ($latitude,$longitude)")
                 result.success(null)
             }
             .addOnFailureListener { error ->
+                Log.e(TAG, "Failed to register geofence $id", error)
                 result.error("ADD_FAILED", error.localizedMessage, null)
             }
     }
@@ -90,9 +93,11 @@ class MainActivity : FlutterActivity() {
         geofencingClient.removeGeofences(listOf(id))
             .addOnSuccessListener {
                 removeStoredGeofence(id)
+                Log.i(TAG, "Removed geofence $id")
                 result.success(null)
             }
             .addOnFailureListener { error ->
+                Log.e(TAG, "Failed to remove geofence $id", error)
                 result.error("REMOVE_FAILED", error.localizedMessage, null)
             }
     }
@@ -120,6 +125,12 @@ class MainActivity : FlutterActivity() {
             .build()
 
         geofencingClient.addGeofences(request, pendingIntent)
+            .addOnSuccessListener {
+                Log.i(TAG, "Re-registered ${stored.size} stored geofences")
+            }
+            .addOnFailureListener { error ->
+                Log.e(TAG, "Failed to re-register stored geofences", error)
+            }
     }
 
     private fun saveGeofence(geofence: StoredGeofence) {
@@ -195,5 +206,6 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "com.example.tempo_de_qualidade/geofencing"
         private const val PREFS_NAME = "geofence_prefs"
         private const val KEY_SAVED_GEOFENCES = "saved_geofences"
+        private const val TAG = "MainActivity"
     }
 }
