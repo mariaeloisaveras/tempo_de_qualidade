@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_place/google_place.dart';
@@ -34,6 +35,8 @@ class GeofenceHomePage extends StatefulWidget {
 }
 
 class _GeofenceHomePageState extends State<GeofenceHomePage> {
+  static const _channel =
+      MethodChannel('com.example.tempo_de_qualidade/geofencing');
   static const _fallbackPosition = LatLng(-23.5505, -46.6333);
   static const _googleApiKey = 'YOUR_GOOGLE_API_KEY';
 
@@ -56,6 +59,7 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
         ? null
         : GooglePlace(_googleApiKey);
     _initLocation();
+    _loadPersistedGeofences();
   }
 
   @override
@@ -85,6 +89,35 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
     _mapController?.animateCamera(
       CameraUpdate.newLatLng(_cameraPosition),
     );
+  }
+
+  Future<void> _loadPersistedGeofences() async {
+    try {
+      final stored = await _channel.invokeListMethod<Map<dynamic, dynamic>>(
+        'getStoredGeofences',
+      );
+
+      if (stored == null) return;
+
+      setState(() {
+        _geofences
+          ..clear()
+          ..addAll(
+            stored.map(
+              (item) => _SavedGeofence(
+                id: item['id'] as String,
+                center: LatLng(
+                  (item['lat'] as num).toDouble(),
+                  (item['lng'] as num).toDouble(),
+                ),
+                radius: (item['radiusMeters'] as num).toDouble(),
+              ),
+            ),
+          );
+      });
+    } catch (error) {
+      debugPrint('Failed to load stored geofences: $error');
+    }
   }
 
   Set<Marker> _buildMarkers() {
@@ -155,7 +188,7 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
     });
   }
 
-  void _saveGeofence() {
+  Future<void> _saveGeofence() async {
     final position = _selectedPosition;
     final radius = double.tryParse(_radiusController.text);
 
@@ -165,28 +198,53 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
     }
 
     final geofence = _SavedGeofence(
-      id: (_geofences.length + 1).toString(),
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
       center: position,
       radius: radius,
     );
 
-    setState(() {
-      _geofences.add(geofence);
-      _selectedPosition = null;
-    });
-    _showMessage('Geofence salvo.');
+    try {
+      await _channel.invokeMethod<void>(
+        'registerGeofence',
+        {
+          'id': geofence.id,
+          'lat': geofence.center.latitude,
+          'lng': geofence.center.longitude,
+          'radiusMeters': geofence.radius,
+        },
+      );
+
+      setState(() {
+        _geofences.add(geofence);
+        _selectedPosition = null;
+      });
+      _showMessage('Geofence salvo.');
+    } catch (error) {
+      _showMessage('Erro ao registrar geofence: $error');
+    }
   }
 
-  void _removeLastGeofence() {
+  Future<void> _removeLastGeofence() async {
     if (_geofences.isEmpty) {
       _showMessage('Não há geofences para remover.');
       return;
     }
 
-    setState(() {
-      _geofences.removeLast();
-    });
-    _showMessage('Geofence removido.');
+    final removed = _geofences.last;
+
+    try {
+      await _channel.invokeMethod<void>(
+        'removeGeofence',
+        {'id': removed.id},
+      );
+
+      setState(() {
+        _geofences.removeLast();
+      });
+      _showMessage('Geofence removido.');
+    } catch (error) {
+      _showMessage('Erro ao remover geofence: $error');
+    }
   }
 
   void _showGeofenceList() {
