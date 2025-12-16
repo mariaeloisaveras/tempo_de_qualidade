@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_place/google_place.dart';
+import 'package:flutter_dnd/flutter_dnd.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +47,10 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
   final List<_SavedGeofence> _geofences = [];
   List<AutocompletePrediction> _predictions = [];
   Timer? _debounce;
+  bool _locationServiceEnabled = false;
+  LocationPermission? _locationPermission;
+  bool _dndAccessGranted = false;
+  bool _dndEnabled = false;
 
   @override
   void initState() {
@@ -56,6 +61,7 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
         ? null
         : GooglePlace(_googleApiKey);
     _initLocation();
+    _refreshStatuses();
   }
 
   @override
@@ -68,23 +74,147 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
 
   Future<void> _initLocation() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+    if (!serviceEnabled) {
+      _showMessage('Ative o serviço de localização para usar o mapa.');
+      return;
+    }
 
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
     }
 
-    if (permission == LocationPermission.deniedForever) return;
+    if (permission == LocationPermission.denied) {
+      _showMessage('Permita o acesso à localização para usar o mapa.');
+      return;
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      _showMessage('Autorize a localização nas configurações do sistema.');
+      return;
+    }
 
     final position = await Geolocator.getCurrentPosition();
     setState(() {
       _cameraPosition = LatLng(position.latitude, position.longitude);
+      _locationPermission = permission;
+      _locationServiceEnabled = serviceEnabled;
     });
     _mapController?.animateCamera(
       CameraUpdate.newLatLng(_cameraPosition),
     );
+  }
+
+  Future<void> _refreshStatuses() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final permission = await Geolocator.checkPermission();
+
+    bool dndGranted = false;
+    bool dndActive = false;
+    try {
+      dndGranted = await FlutterDnd.isNotificationPolicyAccessGranted ?? false;
+      final filter = await FlutterDnd.getCurrentInterruptionFilter();
+      dndActive = filter != null &&
+          filter != FlutterDnd.INTERRUPTION_FILTER_ALL &&
+          filter != FlutterDnd.INTERRUPTION_FILTER_UNKNOWN;
+    } catch (_) {
+      dndGranted = false;
+      dndActive = false;
+    }
+
+    setState(() {
+      _locationServiceEnabled = serviceEnabled;
+      _locationPermission = permission;
+      _dndAccessGranted = dndGranted;
+      _dndEnabled = dndActive;
+    });
+  }
+
+  Future<void> _requestForegroundPermission() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      _showMessage('Ative o GPS para permitir localização em primeiro plano.');
+      return;
+    }
+
+    final permission = await Geolocator.requestPermission();
+    if (permission == LocationPermission.denied) {
+      _showMessage('Permissão negada. Autorize para ver sua posição.');
+    } else if (permission == LocationPermission.deniedForever) {
+      _showMessage('Permissão permanente negada. Ajuste nas configurações.');
+    } else {
+      _showMessage('Permissão de localização em uso concedida.');
+    }
+
+    await _refreshStatuses();
+    if (permission == LocationPermission.whileInUse ||
+        permission == LocationPermission.always) {
+      _initLocation();
+    }
+  }
+
+  Future<void> _requestBackgroundPermission() async {
+    if (!_locationServiceEnabled) {
+      _showMessage('Ative o GPS antes de solicitar localização em segundo plano.');
+      return;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.whileInUse) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.always) {
+      _showMessage('Permissão de localização em segundo plano ativa.');
+    } else if (permission == LocationPermission.deniedForever) {
+      _showMessage('Conceda acesso em segundo plano nas configurações do sistema.');
+    } else {
+      _showMessage('Não foi possível habilitar localização em segundo plano.');
+    }
+
+    await _refreshStatuses();
+  }
+
+  Future<void> _openDndSettings() async {
+    try {
+      await FlutterDnd.gotoPolicySettings();
+    } catch (_) {
+      _showMessage('Não foi possível abrir as configurações de Não Perturbe.');
+      return;
+    }
+
+    await _refreshStatuses();
+    if (_dndAccessGranted) {
+      _showMessage('Acesso ao Não Perturbe concedido.');
+    } else {
+      _showMessage('Permita o acesso ao Não Perturbe para controlar alertas.');
+    }
+  }
+
+  String _locationPermissionLabel() {
+    final permission = _locationPermission;
+    if (!_locationServiceEnabled) return 'Serviço de localização desativado';
+    switch (permission) {
+      case LocationPermission.always:
+        return 'Concedida (segundo plano)';
+      case LocationPermission.whileInUse:
+        return 'Concedida (em uso)';
+      case LocationPermission.denied:
+        return 'Negada';
+      case LocationPermission.deniedForever:
+        return 'Negada permanentemente';
+      default:
+        return 'Não solicitada';
+    }
+  }
+
+  String _dndStatusLabel() {
+    if (!_dndAccessGranted) return 'Acesso não concedido';
+    return _dndEnabled ? 'Ativado' : 'Desativado';
   }
 
   Set<Marker> _buildMarkers() {
@@ -264,6 +394,69 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
       ),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Estado atual',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.location_pin),
+                        title: const Text('Permissão de localização'),
+                        subtitle: Text(_locationPermissionLabel()),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.do_not_disturb),
+                        title: const Text('Acesso ao Não Perturbe'),
+                        subtitle: Text(_dndStatusLabel()),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.adjust_rounded),
+                        title: const Text('Geofences ativas'),
+                        subtitle: Text('${_geofences.length} ativa(s)'),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _requestForegroundPermission,
+                      icon: const Icon(Icons.my_location),
+                      label: const Text('Permitir localização em uso'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _requestBackgroundPermission,
+                      icon: const Icon(Icons.location_history),
+                      label: const Text('Permitir em segundo plano'),
+                    ),
+                    TextButton.icon(
+                      onPressed: _openDndSettings,
+                      icon: const Icon(Icons.settings_applications),
+                      label: const Text('Permitir acesso ao Não Perturbe'),
+                    ),
+                    IconButton(
+                      onPressed: _refreshStatuses,
+                      icon: const Icon(Icons.refresh),
+                      tooltip: 'Atualizar status',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Column(

@@ -14,6 +14,7 @@ dependencies:
   geolocator: ^12.0.0
   geofence_service: ^4.0.0
   google_place: ^0.4.7
+  flutter_dnd: ^0.1.8
 
 dev_dependencies:
   flutter_test:
