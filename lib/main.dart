@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_place/google_place.dart';
@@ -35,6 +36,8 @@ class GeofenceHomePage extends StatefulWidget {
 }
 
 class _GeofenceHomePageState extends State<GeofenceHomePage> {
+  static const _channel =
+      MethodChannel('com.example.tempo_de_qualidade/geofencing');
   static const _fallbackPosition = LatLng(-23.5505, -46.6333);
   static const _googleApiKey = 'YOUR_GOOGLE_API_KEY';
 
@@ -61,7 +64,7 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
         ? null
         : GooglePlace(_googleApiKey);
     _initLocation();
-    _refreshStatuses();
+    _loadPersistedGeofences();
   }
 
   @override
@@ -105,116 +108,33 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
     );
   }
 
-  Future<void> _refreshStatuses() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    final permission = await Geolocator.checkPermission();
-
-    bool dndGranted = false;
-    bool dndActive = false;
+  Future<void> _loadPersistedGeofences() async {
     try {
-      dndGranted = await FlutterDnd.isNotificationPolicyAccessGranted ?? false;
-      final filter = await FlutterDnd.getCurrentInterruptionFilter();
-      dndActive = filter != null &&
-          filter != FlutterDnd.INTERRUPTION_FILTER_ALL &&
-          filter != FlutterDnd.INTERRUPTION_FILTER_UNKNOWN;
-    } catch (_) {
-      dndGranted = false;
-      dndActive = false;
+      final stored = await _channel.invokeListMethod<Map<dynamic, dynamic>>(
+        'getStoredGeofences',
+      );
+
+      if (stored == null) return;
+
+      setState(() {
+        _geofences
+          ..clear()
+          ..addAll(
+            stored.map(
+              (item) => _SavedGeofence(
+                id: item['id'] as String,
+                center: LatLng(
+                  (item['lat'] as num).toDouble(),
+                  (item['lng'] as num).toDouble(),
+                ),
+                radius: (item['radiusMeters'] as num).toDouble(),
+              ),
+            ),
+          );
+      });
+    } catch (error) {
+      debugPrint('Failed to load stored geofences: $error');
     }
-
-    setState(() {
-      _locationServiceEnabled = serviceEnabled;
-      _locationPermission = permission;
-      _dndAccessGranted = dndGranted;
-      _dndEnabled = dndActive;
-    });
-  }
-
-  Future<void> _requestForegroundPermission() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      _showMessage('Ative o GPS para permitir localização em primeiro plano.');
-      return;
-    }
-
-    final permission = await Geolocator.requestPermission();
-    if (permission == LocationPermission.denied) {
-      _showMessage('Permissão negada. Autorize para ver sua posição.');
-    } else if (permission == LocationPermission.deniedForever) {
-      _showMessage('Permissão permanente negada. Ajuste nas configurações.');
-    } else {
-      _showMessage('Permissão de localização em uso concedida.');
-    }
-
-    await _refreshStatuses();
-    if (permission == LocationPermission.whileInUse ||
-        permission == LocationPermission.always) {
-      _initLocation();
-    }
-  }
-
-  Future<void> _requestBackgroundPermission() async {
-    if (!_locationServiceEnabled) {
-      _showMessage('Ative o GPS antes de solicitar localização em segundo plano.');
-      return;
-    }
-
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.whileInUse) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.always) {
-      _showMessage('Permissão de localização em segundo plano ativa.');
-    } else if (permission == LocationPermission.deniedForever) {
-      _showMessage('Conceda acesso em segundo plano nas configurações do sistema.');
-    } else {
-      _showMessage('Não foi possível habilitar localização em segundo plano.');
-    }
-
-    await _refreshStatuses();
-  }
-
-  Future<void> _openDndSettings() async {
-    try {
-      await FlutterDnd.gotoPolicySettings();
-    } catch (_) {
-      _showMessage('Não foi possível abrir as configurações de Não Perturbe.');
-      return;
-    }
-
-    await _refreshStatuses();
-    if (_dndAccessGranted) {
-      _showMessage('Acesso ao Não Perturbe concedido.');
-    } else {
-      _showMessage('Permita o acesso ao Não Perturbe para controlar alertas.');
-    }
-  }
-
-  String _locationPermissionLabel() {
-    final permission = _locationPermission;
-    if (!_locationServiceEnabled) return 'Serviço de localização desativado';
-    switch (permission) {
-      case LocationPermission.always:
-        return 'Concedida (segundo plano)';
-      case LocationPermission.whileInUse:
-        return 'Concedida (em uso)';
-      case LocationPermission.denied:
-        return 'Negada';
-      case LocationPermission.deniedForever:
-        return 'Negada permanentemente';
-      default:
-        return 'Não solicitada';
-    }
-  }
-
-  String _dndStatusLabel() {
-    if (!_dndAccessGranted) return 'Acesso não concedido';
-    return _dndEnabled ? 'Ativado' : 'Desativado';
   }
 
   Set<Marker> _buildMarkers() {
@@ -285,7 +205,7 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
     });
   }
 
-  void _saveGeofence() {
+  Future<void> _saveGeofence() async {
     final position = _selectedPosition;
     final radius = double.tryParse(_radiusController.text);
 
@@ -295,28 +215,53 @@ class _GeofenceHomePageState extends State<GeofenceHomePage> {
     }
 
     final geofence = _SavedGeofence(
-      id: (_geofences.length + 1).toString(),
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
       center: position,
       radius: radius,
     );
 
-    setState(() {
-      _geofences.add(geofence);
-      _selectedPosition = null;
-    });
-    _showMessage('Geofence salvo.');
+    try {
+      await _channel.invokeMethod<void>(
+        'registerGeofence',
+        {
+          'id': geofence.id,
+          'lat': geofence.center.latitude,
+          'lng': geofence.center.longitude,
+          'radiusMeters': geofence.radius,
+        },
+      );
+
+      setState(() {
+        _geofences.add(geofence);
+        _selectedPosition = null;
+      });
+      _showMessage('Geofence salvo.');
+    } catch (error) {
+      _showMessage('Erro ao registrar geofence: $error');
+    }
   }
 
-  void _removeLastGeofence() {
+  Future<void> _removeLastGeofence() async {
     if (_geofences.isEmpty) {
       _showMessage('Não há geofences para remover.');
       return;
     }
 
-    setState(() {
-      _geofences.removeLast();
-    });
-    _showMessage('Geofence removido.');
+    final removed = _geofences.last;
+
+    try {
+      await _channel.invokeMethod<void>(
+        'removeGeofence',
+        {'id': removed.id},
+      );
+
+      setState(() {
+        _geofences.removeLast();
+      });
+      _showMessage('Geofence removido.');
+    } catch (error) {
+      _showMessage('Erro ao remover geofence: $error');
+    }
   }
 
   void _showGeofenceList() {
