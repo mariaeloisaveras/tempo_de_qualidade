@@ -1,0 +1,23 @@
+name: tempo_de_qualidade
+description: A new Flutter project for location and geofencing tests.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  google_maps_flutter: ^2.7.0
+  geolocator: ^12.0.0
+  geofence_service: ^4.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
